@@ -1,41 +1,41 @@
 #! -*- coding:utf-8 -*-
-# 情感分析例子，加载albert_zh权重(https://github.com/brightmart/albert_zh)
+# 句子对分类任务，LCQMC数据集
+# val_acc: 0.887071, test_acc: 0.870320
 
 import numpy as np
-from bert4keras.backend import keras, set_gelu
+from bert4keras.backend import keras, set_gelu, K
 from bert4keras.tokenizers import Tokenizer
 from bert4keras.models import build_transformer_model
-from bert4keras.optimizers import Adam, extend_with_piecewise_linear_lr
+from bert4keras.optimizers import Adam
 from bert4keras.snippets import sequence_padding, DataGenerator
 from bert4keras.snippets import open
-from keras.layers import Lambda, Dense
+from keras.layers import Dropout, Dense
 
 set_gelu('tanh')  # 切换gelu版本
 
-num_classes = 2
 maxlen = 128
-batch_size = 32
-config_path = '/root/kg/bert/albert_small_zh_google/albert_config.json'
-checkpoint_path = '/root/kg/bert/albert_small_zh_google/albert_model.ckpt'
-dict_path = '/root/kg/bert/albert_small_zh_google/vocab.txt'
+batch_size = 64
+config_path = '/root/kg/bert/chinese_wwm_L-12_H-768_A-12/bert_config.json'
+checkpoint_path = '/root/kg/bert/chinese_wwm_L-12_H-768_A-12/bert_model.ckpt'
+dict_path = '/root/kg/bert/chinese_wwm_L-12_H-768_A-12/vocab.txt'
 
 
 def load_data(filename):
     """加载数据
-    单条格式：(文本, 标签id)
+    单条格式：(文本1, 文本2, 标签id)
     """
     D = []
     with open(filename, encoding='utf-8') as f:
         for l in f:
-            text, label = l.strip().split('\t')
-            D.append((text, int(label)))
+            text1, text2, label = l.strip().split('\t')
+            D.append((text1, text2, int(label)))
     return D
 
 
 # 加载数据集
-train_data = load_data('datasets/sentiment/sentiment.train.data')
-valid_data = load_data('datasets/sentiment/sentiment.valid.data')
-test_data = load_data('datasets/sentiment/sentiment.test.data')
+train_data = load_data('datasets/lcqmc/lcqmc.train.data')
+valid_data = load_data('datasets/lcqmc/lcqmc.valid.data')
+test_data = load_data('datasets/lcqmc/lcqmc.test.data')
 
 # 建立分词器
 tokenizer = Tokenizer(dict_path, do_lower_case=True)
@@ -46,8 +46,10 @@ class data_generator(DataGenerator):
     """
     def __iter__(self, random=False):
         batch_token_ids, batch_segment_ids, batch_labels = [], [], []
-        for is_end, (text, label) in self.sample(random):
-            token_ids, segment_ids = tokenizer.encode(text, maxlen=maxlen)
+        for is_end, (text1, text2, label) in self.sample(random):
+            token_ids, segment_ids = tokenizer.encode(
+                text1, text2, maxlen=maxlen
+            )
             batch_token_ids.append(token_ids)
             batch_segment_ids.append(segment_ids)
             batch_labels.append([label])
@@ -63,31 +65,22 @@ class data_generator(DataGenerator):
 bert = build_transformer_model(
     config_path=config_path,
     checkpoint_path=checkpoint_path,
-    model='albert',
+    with_pool=True,
     return_keras_model=False,
 )
 
-output = Lambda(lambda x: x[:, 0], name='CLS-token')(bert.model.output)
+output = Dropout(rate=0.1)(bert.model.output)
 output = Dense(
-    units=num_classes,
-    activation='softmax',
-    kernel_initializer=bert.initializer
+    units=2, activation='softmax', kernel_initializer=bert.initializer
 )(output)
 
 model = keras.models.Model(bert.model.input, output)
 model.summary()
 
-# 派生为带分段线性学习率的优化器。
-# 其中name参数可选，但最好填入，以区分不同的派生优化器。
-AdamLR = extend_with_piecewise_linear_lr(Adam, name='AdamLR')
-
 model.compile(
     loss='sparse_categorical_crossentropy',
-    # optimizer=Adam(1e-5),  # 用足够小的学习率
-    optimizer=AdamLR(learning_rate=1e-4, lr_schedule={
-        1000: 1,
-        2000: 0.1
-    }),
+    optimizer=Adam(2e-5),  # 用足够小的学习率
+    # optimizer=PiecewiseLinearLearningRate(Adam(5e-5), {10000: 1, 30000: 0.1}),
     metrics=['accuracy'],
 )
 
@@ -132,7 +125,7 @@ if __name__ == '__main__':
     model.fit(
         train_generator.forfit(),
         steps_per_epoch=len(train_generator),
-        epochs=10,
+        epochs=20,
         callbacks=[evaluator]
     )
 

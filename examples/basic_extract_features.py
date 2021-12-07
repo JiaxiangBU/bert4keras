@@ -1,26 +1,25 @@
 #! -*- coding: utf-8 -*-
 # 测试代码可用性: 提取特征
 
-from bert4keras.bert import load_pretrained_model
-from bert4keras.utils import Tokenizer, load_vocab
-from keras.models import load_model
 import numpy as np
+from bert4keras.backend import keras
+from bert4keras.models import build_transformer_model
+from bert4keras.tokenizers import Tokenizer
+from bert4keras.snippets import to_array
 
+config_path = '/root/kg/bert/chinese_L-12_H-768_A-12/bert_config.json'
+checkpoint_path = '/root/kg/bert/chinese_L-12_H-768_A-12/bert_model.ckpt'
+dict_path = '/root/kg/bert/chinese_L-12_H-768_A-12/vocab.txt'
 
-config_path = '../../kg/bert/chinese_L-12_H-768_A-12/bert_config.json'
-checkpoint_path = '../../kg/bert/chinese_L-12_H-768_A-12/bert_model.ckpt'
-dict_path = '../../kg/bert/chinese_L-12_H-768_A-12/vocab.txt'
-
-token_dict = load_vocab(dict_path) # 读取词典
-tokenizer = Tokenizer(token_dict) # 建立分词器
-model = load_pretrained_model(config_path, checkpoint_path) # 建立模型，加载权重
+tokenizer = Tokenizer(dict_path, do_lower_case=True)  # 建立分词器
+model = build_transformer_model(config_path, checkpoint_path)  # 建立模型，加载权重
 
 # 编码测试
 token_ids, segment_ids = tokenizer.encode(u'语言模型')
+token_ids, segment_ids = to_array([token_ids], [segment_ids])
 
 print('\n ===== predicting =====\n')
-print(model.predict([np.array([token_ids]), np.array([segment_ids])]))
-
+print(model.predict([token_ids, segment_ids]))
 """
 输出：
 [[[-0.63251007  0.2030236   0.07936534 ...  0.49122632 -0.20493352
@@ -40,5 +39,5 @@ print(model.predict([np.array([token_ids]), np.array([segment_ids])]))
 print('\n ===== reloading and predicting =====\n')
 model.save('test.model')
 del model
-model = load_model('test.model')
-print(model.predict([np.array([token_ids]), np.array([segment_ids])]))
+model = keras.models.load_model('test.model')
+print(model.predict([token_ids, segment_ids]))
